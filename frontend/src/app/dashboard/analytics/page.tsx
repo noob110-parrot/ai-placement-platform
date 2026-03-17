@@ -86,7 +86,7 @@ export default function AnalyticsPage() {
           Feature 38 — <span className="text-gradient">Forward-Thinking Vision</span>
         </h1>
         <p className="text-text-secondary text-sm mt-1 max-w-2xl leading-relaxed">
-          <em>"If we had more time, we would add…"</em> — A demonstration of architectural foresight.
+          <em>&quot;If we had more time, we would add…&quot;</em> — A demonstration of architectural foresight.
           Every feature below can be wired into the existing system without rebuilding from scratch.
         </p>
       </div>
@@ -117,7 +117,7 @@ export default function AnalyticsPage() {
           </div>
           <p className="text-text-secondary text-xs text-center leading-relaxed">
             Aryan Mehta · CSE Final Year<br />
-            <span className="text-amber-400">Moderate readiness</span> — 3 signals need improvement
+            <span className="text-amber-400">Moderate readiness</span> &mdash; 3 signals need improvement
           </p>
         </div>
 
@@ -188,10 +188,10 @@ export default function AnalyticsPage() {
                       {f.tag}
                     </span>
                     <span className="ml-auto text-xs text-text-muted font-mono flex items-center gap-1">
-                      <Lock size={10} /> Est. {f.effort}
+                      <Lock size={10} /> Est. {f.effort.replace(/'/g, "&apos;")}
                     </span>
                   </div>
-                  <p className="text-text-secondary text-sm leading-relaxed">{f.desc}</p>
+                  <p className="text-text-secondary text-sm leading-relaxed">{f.desc.replace(/'/g, "&apos;").replace(/"/g, "&quot;")}</p>
                   <div className="flex items-center gap-4 mt-3 text-xs text-text-muted">
                     <span className="flex items-center gap-1">
                       <TrendingUp size={11} className="text-brand-400" />
@@ -221,8 +221,8 @@ export default function AnalyticsPage() {
         </h2>
         <p className="text-text-secondary text-sm leading-relaxed max-w-2xl mx-auto mb-4">
           The architecture in the codebase is already <strong className="text-white">Version 3 in its thinking.</strong>{" "}
-          We didn't skip mock interviews because we ran out of ideas — we built the infrastructure that makes
-          each future feature a 2–4 week addition, not a 3-month rebuild.
+          We didn&apos;t skip mock interviews because we ran out of ideas &mdash; we built the infrastructure that makes
+          each future feature a 2&ndash;4 week addition, not a 3-month rebuild.
         </p>
         <p className="text-text-muted text-xs italic">
           "The best platforms aren't finished products. They're living systems."
