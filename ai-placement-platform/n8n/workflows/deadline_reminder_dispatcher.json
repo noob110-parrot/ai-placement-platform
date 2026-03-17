@@ -1,0 +1,142 @@
+{
+  "name": "Deadline Reminder Dispatcher",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "hours", "hoursInterval": 6 }] }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "id": "node-schedule-001"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT d.*, s.name, s.phone, s.email, s.google_calendar_token FROM deadlines d JOIN students s ON d.student_id = s.id WHERE d.deadline_at BETWEEN NOW() AND NOW() + INTERVAL '48 hours' AND d.reminder_sent = false AND s.is_active = true ORDER BY d.priority DESC, d.deadline_at ASC",
+        "options": {}
+      },
+      "name": "PostgreSQL: Fetch Upcoming Deadlines",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "id": "node-postgres-001",
+      "credentials": { "postgres": { "id": "cred-postgres", "name": "Placement DB" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{ "value1": "={{ $json.priority }}", "operation": "equals", "value2": "high" }]
+        }
+      },
+      "name": "IF: Priority Filter",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "id": "node-if-001"
+    },
+    {
+      "parameters": {
+        "jsCode": "const priority = $json.priority;\nconst emoji = { high: '🔴', urgent: '🚨', normal: '🟡', low: '🟢' }[priority] || '🟡';\nconst deadline = new Date($json.deadline_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' });\nreturn [{ json: { ...$json, formatted_deadline: deadline, priority_emoji: emoji, whatsapp_message: `Hey ${$json.name}! 👋\\n\\n⏰ *DEADLINE ALERT*\\nCompany: *${$json.company}*\\nRole: ${$json.role}\\nDeadline: *${deadline}*\\n\\n${emoji} *${priority.toUpperCase()} PRIORITY* — Don't miss this!\\n\\nApply here:\\n${$json.application_url || 'Check placement portal'}\\n\\n✅ Added to your Google Calendar\\n\\n— Your Placement Cell` }}];"
+      },
+      "name": "Format Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 200],
+      "id": "node-format-001"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v19.0/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "=Bearer {{ $env.WHATSAPP_API_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "messaging_product", "value": "whatsapp" },
+            { "name": "to",               "value": "={{ $json.phone }}" },
+            { "name": "type",             "value": "text" },
+            { "name": "text",             "value": "={{ JSON.stringify({ body: $json.whatsapp_message, preview_url: true }) }}" }
+          ]
+        }
+      },
+      "name": "WhatsApp Business API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 200],
+      "id": "node-whatsapp-001"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.SMTP_USER }}",
+        "toEmail": "={{ $json.email }}",
+        "subject": "=⏰ Deadline Reminder: {{ $json.company }} — {{ $json.role }}",
+        "emailType": "html",
+        "html": "=<div style='font-family:Arial,sans-serif;max-width:600px'><div style='background:#1a1a2e;color:white;padding:20px;border-radius:8px 8px 0 0'><h2>🎓 AI Placement Platform</h2></div><div style='padding:24px;border:1px solid #e0e0e0'><p>Hi <strong>{{ $json.name }}</strong>,</p><p>Deadline: <strong>{{ $json.formatted_deadline }}</strong></p><p>Company: {{ $json.company }} | Role: {{ $json.role }}</p>{{ $json.application_url ? '<a href=\"' + $json.application_url + '\" style=\"background:#4f46e5;color:white;padding:10px 20px;text-decoration:none;border-radius:4px\">Apply Now →</a>' : '' }}</div></div>",
+        "options": {}
+      },
+      "name": "Gmail: Send Reminder",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1120, 360],
+      "id": "node-gmail-001",
+      "credentials": { "gmailOAuth2": { "id": "cred-gmail", "name": "Placement Gmail" } }
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "calendar": "primary",
+        "start": "={{ $json.deadline_at }}",
+        "end": "={{ new Date(new Date($json.deadline_at).getTime() + 3600000).toISOString() }}",
+        "summary": "=[DEADLINE] {{ $json.company }} — {{ $json.role }} Application Due",
+        "description": "=Apply here: {{ $json.application_url }}\\nPriority: {{ $json.priority.toUpperCase() }}\\nAdded by AI Placement Platform",
+        "additionalFields": {
+          "colorId": "11",
+          "reminders": {
+            "useDefault": false,
+            "overrides": [
+              { "method": "email",  "minutes": 1440 },
+              { "method": "popup",  "minutes": 60 }
+            ]
+          }
+        }
+      },
+      "name": "Google Calendar: Create Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [1120, 520],
+      "id": "node-calendar-001",
+      "credentials": { "googleCalendarOAuth2Api": { "id": "cred-gcal", "name": "Student Calendar" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE deadlines SET reminder_sent = true, whatsapp_sent = true WHERE id = '{{ $json.id }}'",
+        "options": {}
+      },
+      "name": "DB: Mark Reminder Sent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1340, 360],
+      "id": "node-dblog-001",
+      "credentials": { "postgres": { "id": "cred-postgres", "name": "Placement DB" } }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger":                    { "main": [[{ "node": "PostgreSQL: Fetch Upcoming Deadlines", "type": "main", "index": 0 }]] },
+    "PostgreSQL: Fetch Upcoming Deadlines":{ "main": [[{ "node": "IF: Priority Filter",  "type": "main", "index": 0 }]] },
+    "IF: Priority Filter":                 { "main": [[{ "node": "Format Message", "type": "main", "index": 0 }], [{ "node": "Format Message", "type": "main", "index": 0 }]] },
+    "Format Message":                      { "main": [[{ "node": "WhatsApp Business API", "type": "main", "index": 0 }, { "node": "Gmail: Send Reminder", "type": "main", "index": 0 }, { "node": "Google Calendar: Create Event", "type": "main", "index": 0 }]] },
+    "WhatsApp Business API":               { "main": [[{ "node": "DB: Mark Reminder Sent", "type": "main", "index": 0 }]] }
+  },
+  "active": true,
+  "settings": { "executionOrder": "v1", "saveManualExecutions": true, "callerPolicy": "workflowsFromSameOwner" },
+  "tags": [{ "name": "placement" }, { "name": "notifications" }, { "name": "production" }],
+  "meta": { "templateCredsSetupCompleted": true }
+}
