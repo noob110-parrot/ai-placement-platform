@@ -1,0 +1,166 @@
+{
+  "name": "Notice Broadcast & AI Summarizer",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "notice",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook: Receive Notice",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "id": "node-webhook-001",
+      "webhookId": "notice-broadcast-webhook"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/api/notices/summarize",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "raw_content",          "value": "={{ $json.body.raw_content }}" },
+            { "name": "target_departments",   "value": "={{ $json.body.target_departments }}" },
+            { "name": "target_years",         "value": "={{ $json.body.target_years }}" }
+          ]
+        },
+        "options": { "timeout": 15000 }
+      },
+      "name": "HTTP: FastAPI AI Summarize",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 300],
+      "id": "node-http-001"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json;\nconst bullets = body.summary_bullets || [];\nconst bulletText = bullets.map((b, i) => `${i+1}. ${b}`).join('\\n');\nconst whatsappMessage = `📢 *PLACEMENT NOTICE*\\n_${body.title}_\\n\\n${bulletText}\\n\\n— Placement Cell 🏛️`;\nreturn [{ json: { ...body, whatsapp_message: whatsappMessage, bullet_text: bulletText } }];"
+      },
+      "name": "Parse & Format Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "id": "node-parse-001"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT phone, email, name FROM students WHERE is_active = true AND department = ANY(ARRAY[{{ $json.target_departments.map(d => `'${d}'`).join(',') }}]) AND year_of_study = ANY(ARRAY[{{ $json.target_years.join(',') }}])",
+        "options": {}
+      },
+      "name": "PostgreSQL: Get Eligible Students",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "id": "node-postgres-002",
+      "credentials": { "postgres": { "id": "cred-postgres", "name": "Placement DB" } }
+    },
+    {
+      "parameters": { "batchSize": 50, "options": {} },
+      "name": "Split in Batches (50)",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1120, 300],
+      "id": "node-batch-001"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v19.0/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "=Bearer {{ $env.WHATSAPP_API_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "messaging_product", "value": "whatsapp" },
+            { "name": "to",               "value": "={{ $json.phone }}" },
+            { "name": "type",             "value": "text" },
+            { "name": "text",             "value": "={{ JSON.stringify({ body: $('Parse & Format Summary').first().json.whatsapp_message }) }}" }
+          ]
+        }
+      },
+      "name": "WhatsApp: Broadcast",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1340, 180],
+      "id": "node-whatsapp-002"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.SMTP_USER }}",
+        "toEmail": "={{ $json.email }}",
+        "subject": "=📢 Placement Notice: {{ $('Parse & Format Summary').first().json.title }}",
+        "emailType": "html",
+        "html": "=<div style='font-family:Arial,sans-serif;max-width:600px'><div style='background:#1a1a2e;color:white;padding:20px;border-radius:8px 8px 0 0'><h2>📢 Placement Notice</h2><p>{{ $('Parse & Format Summary').first().json.title }}</p></div><div style='padding:24px;border:1px solid #e0e0e0'><p>Hi {{ $json.name }},</p><p>Here is a summary of the latest placement notice:</p><ul>{{ $('Parse & Format Summary').first().json.summary_bullets.map(b => '<li style=\"margin:8px 0\">' + b + '</li>').join('') }}</ul></div></div>",
+        "options": {}
+      },
+      "name": "Gmail: Broadcast Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1340, 300],
+      "id": "node-gmail-002",
+      "credentials": { "gmailOAuth2": { "id": "cred-gmail", "name": "Placement Gmail" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/api/notifications/dashboard-push",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "student_email", "value": "={{ $json.email }}" },
+            { "name": "title",         "value": "=📢 {{ $('Parse & Format Summary').first().json.title }}" },
+            { "name": "body",          "value": "={{ $('Parse & Format Summary').first().json.summary_bullets[0] }}" }
+          ]
+        }
+      },
+      "name": "Dashboard: Push Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1340, 420],
+      "id": "node-dashboard-001"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE notices SET is_broadcast = true, broadcast_at = NOW(), recipients_count = (SELECT COUNT(*) FROM students WHERE is_active = true AND department = ANY(ARRAY[{{ $('Parse & Format Summary').first().json.target_departments.map(d => `'${d}'`).join(',') }}])) WHERE id = '{{ $('HTTP: FastAPI AI Summarize').first().json.id }}'",
+        "options": {}
+      },
+      "name": "DB: Log Broadcast",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1560, 300],
+      "id": "node-dblog-002",
+      "credentials": { "postgres": { "id": "cred-postgres", "name": "Placement DB" } }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"broadcast_complete\", \"notice_id\": \"{{ $('HTTP: FastAPI AI Summarize').first().json.id }}\", \"message\": \"Notice broadcast successfully\" }"
+      },
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1780, 300],
+      "id": "node-respond-001"
+    }
+  ],
+  "connections": {
+    "Webhook: Receive Notice":       { "main": [[{ "node": "HTTP: FastAPI AI Summarize",    "type": "main", "index": 0 }]] },
+    "HTTP: FastAPI AI Summarize":    { "main": [[{ "node": "Parse & Format Summary",        "type": "main", "index": 0 }]] },
+    "Parse & Format Summary":        { "main": [[{ "node": "PostgreSQL: Get Eligible Students", "type": "main", "index": 0 }]] },
+    "PostgreSQL: Get Eligible Students": { "main": [[{ "node": "Split in Batches (50)", "type": "main", "index": 0 }]] },
+    "Split in Batches (50)":         { "main": [[{ "node": "WhatsApp: Broadcast", "type": "main", "index": 0 }, { "node": "Gmail: Broadcast Email", "type": "main", "index": 0 }, { "node": "Dashboard: Push Notification", "type": "main", "index": 0 }]] },
+    "WhatsApp: Broadcast":           { "main": [[{ "node": "DB: Log Broadcast", "type": "main", "index": 0 }]] },
+    "DB: Log Broadcast":             { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+  },
+  "active": true,
+  "settings": { "executionOrder": "v1", "saveManualExecutions": true },
+  "tags": [{ "name": "placement" }, { "name": "ai" }, { "name": "broadcast" }, { "name": "production" }],
+  "meta": { "templateCredsSetupCompleted": true }
+}

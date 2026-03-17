@@ -1,0 +1,129 @@
+{
+  "name": "Job Alert & Smart Matching",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "job-alert",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook: New Job Posted",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "id": "node-wh-jobalert"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT s.id, s.name, s.phone, s.email, s.skills, s.cgpa, s.department FROM students s WHERE s.is_active = true AND s.is_placed = false AND s.cgpa >= {{ $json.body.min_cgpa || 0 }} AND ({{ $json.body.departments ? `s.department = ANY(ARRAY[${$json.body.departments.map(d => `'${d}'`).join(',')}])` : 'true' }})",
+        "options": {}
+      },
+      "name": "PostgreSQL: Get Eligible Students",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "id": "node-pg-jobmatch",
+      "credentials": { "postgres": { "id": "cred-postgres", "name": "Placement DB" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const job = $('Webhook: New Job Posted').first().json.body;\nconst student = $json;\nconst required = job.skills_required || [];\nconst studentSkills = student.skills || [];\nconst matched = required.filter(s => studentSkills.map(x => x.toLowerCase()).includes(s.toLowerCase()));\nconst matchScore = required.length > 0 ? Math.round((matched.length / required.length) * 100) : 100;\nif (matchScore < 50) return [];\nconst msg = `👋 Hi ${student.name}!\\n\\n💼 *NEW JOB MATCH (${matchScore}%)*\\nCompany: *${job.company}*\\nRole: ${job.title}\\nLocation: ${job.location || 'India'}\\nMatch Score: *${matchScore}%*\\n\\nMatching skills: ${matched.join(', ')}\\n${job.application_url ? `\\nApply: ${job.application_url}` : ''}\\n\\n— AI Placement Platform`;\nreturn [{ json: { ...student, whatsapp_message: msg, match_score: matchScore, job } }];"
+      },
+      "name": "Compute Match Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "id": "node-match-score"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [{ "value1": "={{ $json.match_score }}", "operation": "largerEqual", "value2": 50 }]
+        }
+      },
+      "name": "IF: Score >= 50%",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [900, 300],
+      "id": "node-if-score"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v19.0/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "=Bearer {{ $env.WHATSAPP_API_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "messaging_product", "value": "whatsapp" },
+            { "name": "to", "value": "={{ $json.phone }}" },
+            { "name": "type", "value": "text" },
+            { "name": "text", "value": "={{ JSON.stringify({ body: $json.whatsapp_message, preview_url: true }) }}" }
+          ]
+        }
+      },
+      "name": "WhatsApp: Job Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 200],
+      "id": "node-wa-jobalert"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.SMTP_USER }}",
+        "toEmail": "={{ $json.email }}",
+        "subject": "=💼 Job Match ({{ $json.match_score }}%): {{ $json.job.title }} at {{ $json.job.company }}",
+        "emailType": "html",
+        "html": "=<div style='font-family:Arial,sans-serif;max-width:600px'><div style='background:#1a1a2e;color:white;padding:20px;border-radius:8px 8px 0 0'><h2>💼 New Job Match</h2><p>{{ $json.match_score }}% match for your profile</p></div><div style='padding:24px;border:1px solid #e0e0e0'><p>Hi <strong>{{ $json.name }}</strong>,</p><table style='width:100%;border-collapse:collapse;margin:16px 0'><tr style='background:#f5f5f5'><td style='padding:8px;font-weight:bold'>Company</td><td style='padding:8px'>{{ $json.job.company }}</td></tr><tr><td style='padding:8px;font-weight:bold'>Role</td><td style='padding:8px'>{{ $json.job.title }}</td></tr><tr style='background:#f5f5f5'><td style='padding:8px;font-weight:bold'>Match Score</td><td style='padding:8px;color:#4f46e5'><strong>{{ $json.match_score }}%</strong></td></tr></table>{{ $json.job.application_url ? '<a href=\"' + $json.job.application_url + '\" style=\"background:#4f46e5;color:white;padding:12px 24px;text-decoration:none;border-radius:4px\">Apply Now →</a>' : '' }}</div></div>",
+        "options": {}
+      },
+      "name": "Gmail: Job Alert",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1120, 380],
+      "id": "node-gmail-jobalert",
+      "credentials": { "gmailOAuth2": { "id": "cred-gmail", "name": "Placement Gmail" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO notifications (id, student_id, channel, status, subject, body, sent_at) SELECT gen_random_uuid(), '{{ $json.id }}', 'whatsapp', 'delivered', 'Job Match Alert', '{{ $json.job.title }} at {{ $json.job.company }} - {{ $json.match_score }}% match', NOW()",
+        "options": {}
+      },
+      "name": "DB: Log Job Alert",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1340, 300],
+      "id": "node-pg-log-jobalert",
+      "credentials": { "postgres": { "id": "cred-postgres", "name": "Placement DB" } }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"alerts_sent\", \"job_id\": \"{{ $('Webhook: New Job Posted').first().json.body.id }}\" }"
+      },
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1560, 300],
+      "id": "node-respond-jobalert"
+    }
+  ],
+  "connections": {
+    "Webhook: New Job Posted":        { "main": [[{ "node": "PostgreSQL: Get Eligible Students", "type": "main", "index": 0 }]] },
+    "PostgreSQL: Get Eligible Students": { "main": [[{ "node": "Compute Match Score", "type": "main", "index": 0 }]] },
+    "Compute Match Score":            { "main": [[{ "node": "IF: Score >= 50%", "type": "main", "index": 0 }]] },
+    "IF: Score >= 50%":               { "main": [[{ "node": "WhatsApp: Job Alert", "type": "main", "index": 0 }, { "node": "Gmail: Job Alert", "type": "main", "index": 0 }]] },
+    "WhatsApp: Job Alert":            { "main": [[{ "node": "DB: Log Job Alert", "type": "main", "index": 0 }]] },
+    "DB: Log Job Alert":              { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+  },
+  "active": true,
+  "settings": { "executionOrder": "v1", "saveManualExecutions": true },
+  "tags": [{ "name": "placement" }, { "name": "jobs" }, { "name": "matching" }, { "name": "production" }],
+  "meta": { "templateCredsSetupCompleted": true }
+}
