@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "projects": [
+    {
+      "name": "frontend",
+      "path": "frontend",
+      "buildCommand": "npm run build",
+      "outputDirectory": ".next",
+      "framework": "nextjs"
+    },
+    {
+      "name": "backend",
+      "path": "backend",
+      "buildCommand": "pip install -r requirements.txt",
+      "outputDirectory": ".",
+      "framework": "python"
+    }
+  ]
+}
