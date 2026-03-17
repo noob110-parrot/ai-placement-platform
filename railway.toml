@@ -1,0 +1,15 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "backend/Dockerfile"
+
+[[services]]
+name = "backend"
+staticUrl = "backend:8000"
+
+[[services]]
+name = "postgres"
+image = "postgres:15-alpine"
+
+[[services]]
+name = "redis"
+image = "redis:7-alpine"
