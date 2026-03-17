@@ -168,7 +168,7 @@ class Notification(Base):
     status = Column(Enum(NotificationStatus), default=NotificationStatus.PENDING)
     subject = Column(String(300), nullable=True)
     body = Column(Text, nullable=False)
-    metadata = Column(JSON, default={})
+    notification_metadata = Column(JSON, default={}, name="metadata")
     sent_at = Column(DateTime(timezone=True), nullable=True)
     delivered_at = Column(DateTime(timezone=True), nullable=True)
     error_message = Column(Text, nullable=True)
