@@ -1,0 +1,43 @@
+{
+  "name": "ai-placement-platform",
+  "description": "AI Placement Platform - Full Stack",
+  "services": [
+    {
+      "name": "backend",
+      "path": "./backend",
+      "dockerfile": "Dockerfile",
+      "environment": {
+        "PORT": "8000"
+      }
+    },
+    {
+      "name": "pgadmin",
+      "image": "dpage/pgadmin4:latest",
+      "environment": {
+        "PGADMIN_DEFAULT_EMAIL": "admin@placement.edu",
+        "PGADMIN_DEFAULT_PASSWORD": "admin"
+      },
+      "port": 5050
+    },
+    {
+      "name": "n8n",
+      "image": "n8nio/n8n:latest",
+      "environment": {
+        "N8N_BASIC_AUTH_ACTIVE": "true",
+        "N8N_BASIC_AUTH_USER": "admin",
+        "N8N_BASIC_AUTH_PASSWORD": "placement123"
+      },
+      "port": 5678
+    }
+  ],
+  "databases": [
+    {
+      "type": "postgresql",
+      "name": "postgres"
+    },
+    {
+      "type": "redis",
+      "name": "redis"
+    }
+  ]
+}
